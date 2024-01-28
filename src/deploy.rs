@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use ethers::types::{Eip1559TransactionRequest, H160, U256};
+use ethers::types::{Address, Bytes, Eip1559TransactionRequest, H160, U256};
 use ethers::utils::{get_contract_address, to_checksum};
 use ethers::{middleware::SignerMiddleware, providers::Middleware, signers::Signer};
 use eyre::{bail, eyre};
@@ -108,6 +108,56 @@ programs to Stylus chains here https://docs.arbitrum.io/stylus/stylus-quickstart
         bail!(
             "using the --dry-run flag requires specifying the --output-tx-data-to-dir flag as well"
         );
+    }
+
+    if deploy && activate && !dry_run &&cfg.multicall {
+        let mut call3s: Vec<(Address, bool, Bytes)> = vec![];
+        let mut tx_kinds: Vec<TxKind> = vec![]; 
+
+        // deploy
+        let wasm_file_path: PathBuf = match &cfg.check_cfg.wasm_file_path {
+            Some(path) => PathBuf::from_str(path).unwrap(),
+            None => project::build_project_dylib(BuildConfig {
+                opt_level: project::OptLevel::default(),
+                nightly: cfg.check_cfg.nightly,
+                rebuild: false, // The check step at the start of this command rebuilt.
+            })
+            .map_err(|e| eyre!("could not build project to WASM: {e}"))?,
+        };
+        let (_, init_code) = project::compress_wasm(&wasm_file_path)?;
+        let deployment_calldata = program_deployment_calldata(&init_code);
+
+        call3s.push(
+            (Address::zero(), false, deployment_calldata.into())
+        );
+        tx_kinds.push(TxKind::Deployment);
+
+        // activate
+        let program_addr = cfg
+            .activate_program_address
+            .unwrap_or(expected_program_addr);
+        let activate_calldata = activation_calldata(&program_addr);
+
+        let to = hex::decode(constants::ARB_WASM_ADDRESS).unwrap();
+        let to = H160::from_slice(&to);
+
+        call3s.push(
+            (to, false, activate_calldata.into())
+        );
+        tx_kinds.push(TxKind::Activation);
+
+        let tx_request = Eip1559TransactionRequest::new()
+            .from(wallet.address());
+
+        tx::submit_signed_multicall_tx(
+            &client,
+            tx_kinds,
+            cfg.estimate_gas_only,
+            call3s,
+            tx_request,
+        )
+        .await
+        .map_err(|e| eyre!("could not submit signed multicall tx: {e}"))?;
     }
 
     if deploy {

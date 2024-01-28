@@ -127,6 +127,9 @@ pub struct DeployConfig {
     /// Otherwise, a user could choose to split up the deploy and activate steps into individual transactions.
     #[arg(long, value_enum)]
     mode: Option<DeployMode>,
+    /// If deploying and activating, submit both in single transaction using multicall.
+    #[arg(long)]
+    multicall: bool,
     /// If only activating an already-deployed, onchain program, the address of the program to send an activation tx for.
     #[arg(long)]
     activate_program_address: Option<H160>,
