@@ -158,6 +158,8 @@ programs to Stylus chains here https://docs.arbitrum.io/stylus/stylus-quickstart
         )
         .await
         .map_err(|e| eyre!("could not submit signed multicall tx: {e}"))?;
+
+        return Ok(());
     }
 
     if deploy {
